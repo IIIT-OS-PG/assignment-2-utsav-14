@@ -43,3 +43,17 @@ std::string create_group_code_to_string(int code)
    }
    return "Unknown code";
 }
+
+std::string join_group_code_to_string(int code)
+{
+   switch (code)
+   {
+      case 0:   return "Group join requested.";
+      case 1:   return "User is already a member of this group.";
+      case 2:   return "Error: Can't send join request. Group owner is not online.";
+      case 3:   return "Error: No such group exists.";      
+      default:
+         break;
+   }
+   return "Unknown code";
+}

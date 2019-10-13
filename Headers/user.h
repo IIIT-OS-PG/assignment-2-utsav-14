@@ -5,10 +5,15 @@ class user {
 	public:
 	string user_ID;
 	string pwd;
-	string group_ID;	//may be null
+	vector<string> groupIDs;	//may be null
+	struct sockaddr_in address; //Current ip and port of user
 
 	void print(){
-		cout << endl << user_ID << " : " << pwd << " : " << group_ID << endl;
+		cout << endl << user_ID << " : " << pwd << endl;
+		cout << "group member of:\n";
+		for(string grp : groupIDs){
+			cout << grp << " ";
+		}
 	}
 
 	bool operator==(const user & obj)
@@ -19,7 +24,10 @@ class user {
 
 	friend ostream & operator << (ostream &out, const user & obj)
 	{
-		out << obj.user_ID << "\n" <<obj.pwd<<"\n"<<obj.group_ID<<endl;
+		out << obj.user_ID << "\n" << obj.pwd << endl;
+		// for(string gID : obj.groupIDs){
+		// 	out << gID << endl;
+		// }
 		return out;
 	}
 
@@ -27,7 +35,7 @@ class user {
 	{
 		in >> obj.user_ID;
 		in >> obj.pwd;
-		in >> obj.group_ID;
+		//in >> obj.group_ID;
 		return in;
 	}
 };

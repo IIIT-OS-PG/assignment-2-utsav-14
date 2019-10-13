@@ -4,29 +4,30 @@
 #include <sys/stat.h>
 #include <stdlib.h> 
 #include <netinet/in.h> 
-#include <cstring> 
-#include <iostream>
 #include <pthread.h>
 #include <cmath>
-#include <vector>
 #include <sstream>
+#include <unordered_map>
 #include <openssl/sha.h>
 #include "../Headers/user.h"
 #include "../Headers/constants.h"
+#include "../Headers/common_headers.h"
 
 typedef unsigned long long ull;
 #define BUFF_SIZE (512*1024)
-#define LOCALHOST "127.0.0.1"
 #define QUEUE_LENGTH 10
 #define HASH_LENGTH 20
 //#define PACKET_SIZE (2*1024)
 const char* downloads_base_directory =  "./Downloads/";
 const char* uploads_base_directory =  "./Uploads/";
-
+unordered_map<string, vector<string>> join_requests;
+vector<string> owned_groups;
 using namespace std;
 
 typedef struct {
 	int* port_no;
+	char* tracker_file;
+	sockaddr_in address;
 }thread_args;
 
 int setup_socket(){
@@ -90,10 +91,30 @@ void* serve_request(void* new_socket){
 		exit(EXIT_FAILURE);
 	}else
 	{
-		char* file_path = new char[200];
-		set_filepath(file_path, buffer);
-		cout << "File requested: " << file_path << endl;
-		send_file(file_path, buffer, socket);
+		string command(buffer);
+		stringstream tokenizer(command);
+		vector<string> params;
+		string param;
+		while(getline(tokenizer, param, ' ')){
+			params.push_back(param);
+		}
+		string command_name = params[0];
+		if(command_name == "join"){
+			auto it = join_requests.find(params[1]);
+			if(it == join_requests.end()){
+				vector<string> req;
+				req.push_back(params[2]);
+				join_requests.insert(make_pair(params[1], req));
+			}else{
+				it->second.push_back(params[2]);
+			}
+			cout << "Join request added.\n";
+		}else{	
+			char* file_path = new char[200];
+			set_filepath(file_path, buffer);
+			cout << "File requested: " << file_path << endl;
+			send_file(file_path, buffer, socket);
+		}
 	}
 	if(close(socket)){
 		cerr << "Error while closing the socket.\n";
@@ -113,6 +134,12 @@ void* start_server(void* args){
 		perror("Socket creation failed"); 
 		exit(EXIT_FAILURE); 
 	}
+	int opt = 1; 
+	if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt))) 
+    { 
+        perror("Setsockopt"); 
+        exit(EXIT_FAILURE); 
+    } 
 	struct sockaddr_in address = setup_address(port_no);  
 	if (bind_server(server_fd, address) < 0) 
 	{ 
@@ -207,18 +234,54 @@ int send_command_to_tracker(char* command, struct sockaddr_in address){
 	return response;
 }
 
+vector<string> find_owned_groups(string user_ID, struct sockaddr_in address){
+	char command[100] = "\0";
+	strcpy(command, "find_owned_groups ");
+	strcat(command, user_ID.c_str());
+	int client_fd = setup_socket();
+	if (client_fd  == 0) 
+	{ 
+		perror("Socket creation failed"); 
+	}
+	if (connect(client_fd, (struct sockaddr *)&address, sizeof(address)) < 0)
+	{ 
+		perror("Connection Failed."); 
+	}
+	write(client_fd , command , strlen(command));
+	vector<string> response;
+	char res[10] = "\0";
+	while(read(client_fd, &res, sizeof(res))){
+		string owned_ID(res);
+		response.push_back(owned_ID);
+	}
+	close(client_fd);
+	return response;
+}
+
 void* start_client(void* args){
-	int port_no = 8083;
+	
+	thread_args* arg = (thread_args*)args;
+	char* file = arg->tracker_file;
+	int port_no = *arg->port_no;
 	free(args);
+	ifstream f_in(file);
+	if(!f_in){
+		cerr << "Error: " << file << " file couldn't be opened.\n";
+		pthread_exit(NULL);
+	}
+	string ip, port;
+	getline(f_in, ip);
+	getline(f_in, port);
+	int server_port;
+	sscanf(port.c_str(), "%d", &server_port);
 	struct sockaddr_in address;
-	address.sin_family = AF_INET; 
-	address.sin_port = htons(port_no);  
-	if(inet_pton(AF_INET, LOCALHOST, &address.sin_addr)<=0)
+	address.sin_family = AF_INET;
+	address.sin_port = htons(server_port);
+	if(inet_pton(AF_INET, ip.c_str(), &address.sin_addr) <= 0)
 	{ 
 		perror("Address not supported."); 
 		exit(EXIT_FAILURE); 
 	} 
-	int client_fd;
 	char userID[20] = "\0";
 	while(true){
 		cout << "\n\t\t\t\tClient Program\n";
@@ -226,9 +289,11 @@ void* start_client(void* args){
 		cin.get();
 		char comm[200] = "\0";
 		scanf("%[^\n]", comm);
-		cout << "Command: " << comm << endl;
+		if(strlen(comm) == 0){
+			continue;
+		}
 		string command(comm);
-		stringstream tokenizer(comm);
+		stringstream tokenizer(command);
 		vector<string> params;
 		string param;
 		while(getline(tokenizer, param, ' ')){
@@ -256,8 +321,6 @@ void* start_client(void* args){
 				cerr << "Exactly 2 arguements required: (userid, password)\n";
 				continue;
 			}
-			cout << "userid: " << params[1] << endl;
-			cout << "password: " << params[2] << endl;
 			// unsigned char hash[HASH_LENGTH]="\0";
 			// SHA1((const unsigned char*)params[2].c_str(), params[2].size(), hash);
 			// char comm2[200] = "\0";
@@ -268,10 +331,14 @@ void* start_client(void* args){
 			// strcat(comm2, (char *)hash);
 			// cout << "hash generated: " << hash << endl;
 			// cout << "Sending for login: " << comm2 << endl;
+			char port[10] = "\0";
+			sprintf(port, "%d", port_no);
+			strcat(comm, " ");
+			strcat(comm, port);
 			int ret = send_command_to_tracker(comm, address);
 			if(ret >= 0){
 				cout << login_code_to_string(ret);
-				if(ret==0){
+				if(ret==0 || ret == 2){
 					strcpy(userID, params[1].c_str());
 				}
 			}
@@ -293,10 +360,54 @@ void* start_client(void* args){
 			}
 		}else if(command_name == "join_group"){
 			cout << "join group\n";
+			if(params.size() != 2){
+				cerr << "Exactly 1 arguement required: (groupid)\n";
+				continue;
+			}
+			if(strlen(userID) == 0){
+				cerr << "You must login first.\n";
+				continue;
+			}
+			strcat(comm, " ");
+			strcat(comm, userID);
+			int ret = send_command_to_tracker(comm, address);
+			if(ret >= 0){
+				cout << join_group_code_to_string(ret);
+			}
 		}else if(command_name == "leave_group"){
 			cout << "leave group\n";
 		}else if(command_name == "list_requests"){
 			cout << "list requests\n";
+			if(params.size() != 2){
+				cerr << "Exactly 1 arguement required: (groupid)\n";
+				continue;
+			}
+			if(strlen(userID) == 0){
+				cerr << "You must login first.\n";
+				continue;
+			}
+			auto it = join_requests.find(params[1]);
+			if(it != join_requests.end()){
+				bool owned = false;
+				owned_groups = find_owned_groups(userID, address);
+				for(string owned_gID : owned_groups){
+					if(owned_gID == params[1]){ 		//if requested groupID is in owned list
+						owned = true;
+						break;
+					}
+				}
+				if(owned){
+					cout << "USER_ID:\n";
+					vector<string> req = it->second;
+					for(string userID : req){
+						cout << userID << endl;
+					}
+				}else{
+					cout << "Logged in user doesn't own this groupID.\n";
+				}
+			}else{
+				cout << "GroupID not found.\n";
+			}
 		}else if(command_name == "accept_request"){
 			cout << "accept request\n";
 		}else if(command_name == "list_groups"){
@@ -317,7 +428,6 @@ void* start_client(void* args){
 			cout << "wrong command\n";
 		}
 	}
-	close(client_fd);
 	pthread_exit(NULL);
 }
 
@@ -344,6 +454,7 @@ int main(int argc, char** argv)
 	pthread_t client_thread;
 	thread_args *client_args = (thread_args*)malloc(sizeof(thread_args));
 	client_args->port_no = &port_no;
+	client_args->tracker_file = argv[2];
 	int ret_val_client = pthread_create(&client_thread, NULL, start_client, (void*)client_args);
 	if(ret_val_client){
 		perror("Error creating client thread.");

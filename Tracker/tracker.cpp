@@ -4,9 +4,9 @@
 #include <netinet/in.h>
 #include <pthread.h>
 #include <cmath>
-#include <vector>
 #include <sstream>
 #include <fstream>
+#include "../Headers/common_headers.h"
 #include "../Headers/user.h"
 #include "../Headers/group.h"
 
@@ -15,6 +15,7 @@ typedef unsigned long long ull;
 #define LOCALHOST "127.0.0.1"
 #define QUEUE_LENGTH 10
 vector<user> logged_in_users;
+vector<group> groups;
 
 typedef struct {
 	char* command;
@@ -49,7 +50,7 @@ int bind_server(int server_fd, struct sockaddr_in address){
 	return bind(server_fd, (struct sockaddr*)&address, sizeof(address));
 } 
 
-int login(vector<string> params){
+int login(vector<string> params, int socket){ // 1:userID , 2: pwd, 3:peer_port
 	ifstream f_in("users");
 	if(!f_in){
 		cerr << "Users file couldn't be opened.\n";
@@ -58,6 +59,8 @@ int login(vector<string> params){
 	user new_user;
 	new_user.user_ID = params[1];
 	new_user.pwd = params[2];
+	int client_port;
+	sscanf(params[3].c_str(), "%d", &client_port);
 	user temp_user;
 	vector<user> logged_in = logged_in_users;
 	for(user u : logged_in){
@@ -68,9 +71,15 @@ int login(vector<string> params){
 		}
 	}
 	while(f_in >> temp_user){
+		temp_user.print();
 		if(temp_user.user_ID == new_user.user_ID){
 			if(temp_user.pwd == new_user.pwd){
 				cout << "Logged in successfully.\n";
+				struct sockaddr_in peer_address;
+				int addrlen = sizeof(peer_address);
+				getpeername(socket, (struct sockaddr*)&peer_address, (socklen_t*)&addrlen);
+				temp_user.address = peer_address;
+				temp_user.address.sin_port = htons(client_port);
 				logged_in_users.push_back(temp_user);
 				f_in.close();
 				return 0;
@@ -96,9 +105,6 @@ int create_user(vector<string> params){
 		user new_user;
 		new_user.user_ID = params[1];
 		new_user.pwd = params[2];
-		new_user.group_ID="-1";
-		cout << "new user: ";
-		new_user.print();
 		user temp_user;
 		while(f_in >> temp_user){
 			if(temp_user.user_ID == new_user.user_ID){
@@ -121,7 +127,6 @@ int create_user(vector<string> params){
 }
 
 int create_group(vector<string> params){
-	vector<user> logged_in = logged_in_users;
 	ofstream f_out("groups", ios::app);
 	ifstream f_in("groups");
 	if(!f_in || !f_out){
@@ -131,8 +136,6 @@ int create_group(vector<string> params){
 	group new_grp;
 	new_grp.group_ID = params[1];
 	new_grp.owner_user_ID = params[2];
-	cout << "new group: ";
-	new_grp.print();
 	group temp_grp;
 	while(f_in >> temp_grp){
 		if(temp_grp.group_ID == new_grp.group_ID){
@@ -149,24 +152,112 @@ int create_group(vector<string> params){
 		return 3;
 	}
 	cout << "Group created successfully.";
+	new_grp.members.push_back(params[2]);
+	groups.push_back(new_grp);
 	f_in.close();
 	f_out.close();
 	return 0;
 }
 
-int execute_command(vector<string> params){
+int request_join(user owner, string groupID, string userID){
+	struct sockaddr_in address = owner.address;  
+	int tracker_fd = setup_socket();
+	if (tracker_fd  == 0) 
+	{ 
+		perror("Socket creation failed"); 
+	}
+	if (connect(tracker_fd, (struct sockaddr *)&address, sizeof(address)) < 0)
+	{ 
+		perror("Connection Failed."); 
+	}
+	char command[200]= "\0";
+	strcpy(command, "join ");
+	strcat(command, groupID.c_str());
+	strcat(command, " ");
+	strcat(command, userID.c_str());
+	write(tracker_fd , command , strlen(command));
+	close(tracker_fd);
+	return 0;
+}
+
+void init_groups(){
+	ifstream f_in("groups");
+	if(!f_in){
+		cerr << "Error: Groups file couldn't be opened.\n";
+		return;
+	}
+	group temp_grp;
+	while(f_in >> temp_grp){
+		temp_grp.members.push_back(temp_grp.owner_user_ID);
+		groups.push_back(temp_grp);
+	}
+	f_in.close();
+}
+
+int join_group(vector<string> params){ // 1:groupID , 2: userID
+	if(groups.empty()){
+		init_groups();
+	}
+	vector<group> grp = groups;
+	for(group g : grp){
+		cout << "checking:\n";
+		if(g.group_ID == params[1]){
+			for(string user : g.members){
+				if(user == params[2]){
+					//user is aready a member of this group
+					cout << "User is already a member of this group.\n";
+					return 1;
+				}
+			}
+			vector<user> usrs = logged_in_users;
+			user grp_owner;
+			for(user u : usrs){
+				if(u.user_ID == g.owner_user_ID){
+					grp_owner = u;
+					cout << "Group join requested.\n";
+					request_join(grp_owner, params[1], params[2]);		//Send request to group owner
+					return 0;
+				}
+			}
+			cerr << "Can't send join request. Group owner is not online.\n";
+			return 2;
+		}
+	}
+	cerr << "No such group exists.";
+	return 3;
+}
+
+vector<string> find_owned_groups(string userID){
+	ifstream f_in("groups");
+	vector<string> g_IDs;
+	if(!f_in){
+		cerr << "Error: Groups file couldn't be opened.\n";
+		return g_IDs;
+	}
+	group temp_grp;
+	while(f_in >> temp_grp){
+		if(temp_grp.owner_user_ID == userID){
+			g_IDs.push_back(temp_grp.group_ID);
+		}
+	}
+	f_in.close();
+	return g_IDs;
+}
+
+int execute_command(vector<string> params, int socket){
 	string command_name = params[0]/*, response = "generic response"*/;
 	if(command_name == "create_user"){
 		cout << "creating user:\n";
 		return create_user(params);
 	}else if(command_name == "login"){
 		cout << "login\n";
-		return login(params);
+		return login(params, socket);
 	}else if(command_name == "create_group"){
 		cout << "create group\n";
 		return create_group(params);
 	}else if(command_name == "join_group"){
 		cout << "join group\n";
+		return join_group(params);
 	}else if(command_name == "leave_group"){
 		cout << "leave group\n";
 	}/*else if(command_name == "list_requests"){
@@ -212,13 +303,21 @@ void* serve_request(void* new_socket){
 		while(getline(tokenizer, param, ' ')){
 			params.push_back(param);
 		}
-		//Check login status first
-		int return_val = 5;
-		return_val = execute_command(params);
-		cout << "returning: " << return_val << endl;
-		int ret = write(socket, &return_val, sizeof(return_val));
-		if(!ret){
-			cerr << "\nError in writing response.";
+		if(params[0] == "find_owned_groups"){
+			vector<string> res = find_owned_groups(params[1]);
+			for(string g_ID : res){
+				int ret = write(socket, g_ID.c_str(), g_ID.size());
+				if(!ret){
+					cerr << "\nError in writing response.";
+				}
+			}
+		}else{
+			int return_val = 5;
+			return_val = execute_command(params, socket);
+			int ret = write(socket, &return_val, sizeof(return_val));
+			if(!ret){
+				cerr << "\nError in writing response.";
+			}
 		}
 	}
 	if(close(socket)){
@@ -248,8 +347,7 @@ void start_tracker(int port_no){
 		perror("Listen failed"); 
 		exit(EXIT_FAILURE); 
 	} 
-	while (true) {
-		
+	while (true) {	
 		int new_socket, addrlen = sizeof(address);
 		if ((new_socket = accept(tracker_fd, (struct sockaddr*)&address, (socklen_t*)&addrlen))<0) 
 		{ 
