@@ -7,12 +7,14 @@
 #include <vector>
 #include <sstream>
 #include <fstream>
-#include "user.h"
+#include "../Headers/user.h"
+#include "../Headers/group.h"
 
 typedef unsigned long long ull;
 #define BUFF_SIZE (512*1024)
 #define LOCALHOST "127.0.0.1"
 #define QUEUE_LENGTH 10
+vector<user> logged_in_users;
 
 typedef struct {
 	char* command;
@@ -29,14 +31,6 @@ typedef struct {
 	ull size;
 	bool is_shared;
 }file;
-
-typedef struct {
-	string group_ID;
-	string user_ID;
-	vector<string> members;
-	vector<file> files_shared;
-}group;
-
 
 
 int setup_socket(){
@@ -55,16 +49,49 @@ int bind_server(int server_fd, struct sockaddr_in address){
 	return bind(server_fd, (struct sockaddr*)&address, sizeof(address));
 } 
 
-string execute_command(vector<string> params){
-	string command_name = params[0], response = "generic response";
-	if(command_name == "create_user"){
-		cout << "creating user:\n";
-		ofstream f_out("users", ios::app);
+int login(vector<string> params){
+	ifstream f_in("users");
+	if(!f_in){
+		cerr << "Users file couldn't be opened.\n";
+		return 1;
+	}
+	user new_user;
+	new_user.user_ID = params[1];
+	new_user.pwd = params[2];
+	user temp_user;
+	vector<user> logged_in = logged_in_users;
+	for(user u : logged_in){
+		if(u == new_user) {
+			cout << "User already logged in.\n";
+			f_in.close();
+			return 2;
+		}
+	}
+	while(f_in >> temp_user){
+		if(temp_user.user_ID == new_user.user_ID){
+			if(temp_user.pwd == new_user.pwd){
+				cout << "Logged in successfully.\n";
+				logged_in_users.push_back(temp_user);
+				f_in.close();
+				return 0;
+			}else{
+				cerr << "Wrong password.\n";
+				f_in.close();
+				return 3;
+			}
+		}
+	}
+	cerr << "User does not exist.\n";
+	f_in.close();
+	return 4;
+}
+
+int create_user(vector<string> params){
+	ofstream f_out("users", ios::app);
 		ifstream f_in("users");
 		if(!f_in || !f_out){
-			cerr << "Users file couldn't be opened.\n";
-			response = "Error: Users file couldn't be opened.";
-			return response;
+			cerr << "Error: Users file couldn't be opened.\n";
+			return 1;
 		}
 		user new_user;
 		new_user.user_ID = params[1];
@@ -74,63 +101,70 @@ string execute_command(vector<string> params){
 		new_user.print();
 		user temp_user;
 		while(f_in >> temp_user){
-			//cout << "read:\n";
-			//temp_user.print();
-			if(temp_user == new_user){
+			if(temp_user.user_ID == new_user.user_ID){
 				cerr << "UserID already exists.\n";
-				response = "Error: UserID already exists.";
 				f_in.close();
 				f_out.close();
-				return response;
+				return 2;
 			}
 		}
 		if(!(f_out << new_user)){
 			cerr << "Error writing record in user file.\n";
-			response = "Error writing record in user file.";
 			f_in.close();
 			f_out.close();
-			return response;
+			return 3;
 		}
 		cout << "User created successfully.";
 		f_in.close();
 		f_out.close();
-		response =  "User created successfully.";
-		return response;
+		return 0;
+}
+
+int create_group(vector<string> params){
+	vector<user> logged_in = logged_in_users;
+	ofstream f_out("groups", ios::app);
+	ifstream f_in("groups");
+	if(!f_in || !f_out){
+		cerr << "Error: Groups file couldn't be opened.\n";
+		return 1;
+	}
+	group new_grp;
+	new_grp.group_ID = params[1];
+	new_grp.owner_user_ID = params[2];
+	cout << "new group: ";
+	new_grp.print();
+	group temp_grp;
+	while(f_in >> temp_grp){
+		if(temp_grp.group_ID == new_grp.group_ID){
+			cerr << "GroupID already exists.\n";
+			f_in.close();
+			f_out.close();
+			return 2;
+		}
+	}
+	if(!(f_out << new_grp)){
+		cerr << "Error writing record in group file.\n";
+		f_in.close();
+		f_out.close();
+		return 3;
+	}
+	cout << "Group created successfully.";
+	f_in.close();
+	f_out.close();
+	return 0;
+}
+
+int execute_command(vector<string> params){
+	string command_name = params[0]/*, response = "generic response"*/;
+	if(command_name == "create_user"){
+		cout << "creating user:\n";
+		return create_user(params);
 	}else if(command_name == "login"){
 		cout << "login\n";
-		ifstream f_in("users");
-		if(!f_in){
-			cerr << "Users file couldn't be opened.\n";
-			response = "Error: Users file couldn't be opened.";
-			return response;
-		}
-		user new_user;
-		new_user.user_ID = params[1];
-		new_user.pwd = params[2];
-		user temp_user;
-		while(f_in >> temp_user){
-			//cout << "read:\n";
-			//temp_user.print();
-			if(temp_user == new_user){
-				if(temp_user.pwd == new_user.pwd){
-					cout << "Logged in successfully.\n";
-					response = "Success: Logged in successfully.";
-					f_in.close();
-					return response;
-				}else{
-					cerr << "Wrong password.\n";
-					response = "Error: Wrong password.";
-					f_in.close();
-					return response;
-				}
-			}
-		}
-		cerr << "User does not exist.\n";
-		response = "Error: User does not exist.";
-		f_in.close();
-		return response;
+		return login(params);
 	}else if(command_name == "create_group"){
 		cout << "create group\n";
+		return create_group(params);
 	}else if(command_name == "join_group"){
 		cout << "join group\n";
 	}else if(command_name == "leave_group"){
@@ -156,7 +190,7 @@ string execute_command(vector<string> params){
 	}*/else{
 		cout << "wrong command\n";
 	}
-	return response;
+	return 0;
 }
 
 void* serve_request(void* new_socket){
@@ -179,8 +213,10 @@ void* serve_request(void* new_socket){
 			params.push_back(param);
 		}
 		//Check login status first
-		string return_val = execute_command(params);
-		int ret = write(socket, return_val.c_str(), return_val.size());
+		int return_val = 5;
+		return_val = execute_command(params);
+		cout << "returning: " << return_val << endl;
+		int ret = write(socket, &return_val, sizeof(return_val));
 		if(!ret){
 			cerr << "\nError in writing response.";
 		}

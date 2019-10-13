@@ -11,6 +11,8 @@
 #include <vector>
 #include <sstream>
 #include <openssl/sha.h>
+#include "../Headers/user.h"
+#include "../Headers/constants.h"
 
 typedef unsigned long long ull;
 #define BUFF_SIZE (512*1024)
@@ -185,27 +187,24 @@ void upload_file(int client_fd){
 	cout << "Under construction..\n";
 }
 
-void send_command_to_tracker(char* command, struct sockaddr_in address){
+int send_command_to_tracker(char* command, struct sockaddr_in address){
 	int client_fd = setup_socket();
 	if (client_fd  == 0) 
 	{ 
 		perror("Socket creation failed"); 
-		exit(EXIT_FAILURE); 
 	}
 	if (connect(client_fd, (struct sockaddr *)&address, sizeof(address)) < 0)
 	{ 
 		perror("Connection Failed."); 
-		exit(EXIT_FAILURE); 
 	}
 	write(client_fd , command , strlen(command));
-	char response[100] = "\0"; 
-	int ret = read(client_fd, response, sizeof(response));
+	int response = -100; 
+	int ret = read(client_fd, &response, sizeof(response));
 	if(!ret){
 		cerr << "\nError in reading response.";
-	}else{
-		cout << "Response from tracker: " << response << endl;
 	}
 	close(client_fd);
+	return response;
 }
 
 void* start_client(void* args){
@@ -220,9 +219,9 @@ void* start_client(void* args){
 		exit(EXIT_FAILURE); 
 	} 
 	int client_fd;
+	char userID[20] = "\0";
 	while(true){
 		cout << "\n\t\t\t\tClient Program\n";
-		//cout << "1-Download a file\n2-Upload a file\n3-Exit\nEnter your choice: ";
 		cout << "Enter command > ";
 		cin.get();
 		char comm[200] = "\0";
@@ -247,9 +246,16 @@ void* start_client(void* args){
 			//unsigned char hash[HASH_LENGTH]="\0";
 			//SHA1((const unsigned char*)params[2].c_str(), params[2].size(), hash);
 			//cout << "hash generated: " << hash << endl;
-			//send_command_to_tracker(comm, address);
+			int ret = send_command_to_tracker(comm, address);
+			if(ret >= 0){
+				cout << create_user_code_to_string(ret);
+			}
 		}else if(command_name == "login"){
 			cout << "login\n";
+			if(params.size() != 3){
+				cerr << "Exactly 2 arguements required: (userid, password)\n";
+				continue;
+			}
 			cout << "userid: " << params[1] << endl;
 			cout << "password: " << params[2] << endl;
 			// unsigned char hash[HASH_LENGTH]="\0";
@@ -262,9 +268,29 @@ void* start_client(void* args){
 			// strcat(comm2, (char *)hash);
 			// cout << "hash generated: " << hash << endl;
 			// cout << "Sending for login: " << comm2 << endl;
-			send_command_to_tracker(comm, address);
+			int ret = send_command_to_tracker(comm, address);
+			if(ret >= 0){
+				cout << login_code_to_string(ret);
+				if(ret==0){
+					strcpy(userID, params[1].c_str());
+				}
+			}
 		}else if(command_name == "create_group"){
 			cout << "create group\n";
+			if(params.size() != 2){
+				cerr << "Exactly 1 arguement required: (groupid)\n";
+				continue;
+			}
+			if(strlen(userID) == 0){
+				cerr << "You must login first.\n";
+				continue;
+			}
+			strcat(comm, " ");
+			strcat(comm, userID);
+			int ret = send_command_to_tracker(comm, address);
+			if(ret >= 0){
+				cout << create_group_code_to_string(ret);
+			}
 		}else if(command_name == "join_group"){
 			cout << "join group\n";
 		}else if(command_name == "leave_group"){
@@ -290,36 +316,6 @@ void* start_client(void* args){
 		}else{
 			cout << "wrong command\n";
 		}
-	// 	cin >> op;
-	// 	switch(op){
-	// 		case 1 : {
-	// 				client_fd = setup_socket();
-	// 				if (client_fd  == 0) 
-	// 				{ 
-	// 					perror("Socket creation failed"); 
-	// 					exit(EXIT_FAILURE); 
-	// 				}
-	// 				if (connect(client_fd, (struct sockaddr *)&address, sizeof(address)) < 0)
-	// 				{ 
-	// 					perror("Connection Failed."); 
-	// 					exit(EXIT_FAILURE); 
-	// 				}
-	// 			download_file(client_fd);
-	// 			close(client_fd);
-	// 			break;
-	// 		}
-	// 		case 2 : {
-	// 			upload_file(client_fd);
-	// 			break;
-	// 		}
-	// 		case 3 : {
-	// 			cout << "Client exiting..\n";
-	// 			break;
-	// 		}
-	// 		default : cout << "Wrong option\n";
-	// 		break;
-	// 	}
-	// }while(op!=3);
 	}
 	close(client_fd);
 	pthread_exit(NULL);

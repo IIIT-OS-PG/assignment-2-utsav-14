@@ -1,4 +1,4 @@
-#include <iostream>
+#include "common_headers.h"
 using namespace std;
 
 class user {
@@ -13,7 +13,7 @@ class user {
 
 	bool operator==(const user & obj)
 	{
-		return (user_ID == obj.user_ID);
+		return (user_ID == obj.user_ID) && (pwd == obj.pwd);
 	}
  
 
