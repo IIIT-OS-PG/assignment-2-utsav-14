@@ -258,6 +258,36 @@ vector<string> find_owned_groups(string user_ID, struct sockaddr_in address){
 	return response;
 }
 
+vector<string> find_all_groups(struct sockaddr_in address){
+	char command[100] = "\0";
+	strcpy(command, "find_all_groups");
+	int client_fd = setup_socket();
+	if (client_fd  == 0) 
+	{ 
+		perror("Socket creation failed"); 
+	}
+	if (connect(client_fd, (struct sockaddr *)&address, sizeof(address)) < 0)
+	{ 
+		perror("Connection Failed."); 
+	}
+	write(client_fd , command , strlen(command));
+	vector<string> response;
+	char res[100] = "\0";
+	uint* size = new uint;
+	int ret = read(client_fd, size, sizeof(size));
+	if(!ret){
+		cout << "Error reading the number of groups.\n";
+		return response;
+	}
+	//cout << "size: " << *size << endl;
+	while(read(client_fd, &res, sizeof(res))){
+		string grp(res);
+		response.push_back(grp);
+	}
+	close(client_fd);
+	return response;
+}
+
 void* start_client(void* args){
 	
 	thread_args* arg = (thread_args*)args;
@@ -319,6 +349,10 @@ void* start_client(void* args){
 			cout << "login\n";
 			if(params.size() != 3){
 				cerr << "Exactly 2 arguements required: (userid, password)\n";
+				continue;
+			}
+			if(strlen(userID) > 0){
+				cerr << "You must logout first.\n";
 				continue;
 			}
 			// unsigned char hash[HASH_LENGTH]="\0";
@@ -427,8 +461,60 @@ void* start_client(void* args){
 			}
 		}else if(command_name == "accept_request"){
 			cout << "accept request\n";
+			if(params.size() != 3){
+				cerr << "Exactly 2 arguements required: (groupid, userid)\n";
+				continue;
+			}
+			if(strlen(userID) == 0){
+				cerr << "You must login first.\n";
+				continue;
+			}
+			bool owned = false;
+			owned_groups = find_owned_groups(userID, address);
+			for(string owned_gID : owned_groups){
+				if(owned_gID == params[1]){ 		//if requested groupID is in owned list
+					owned = true;
+					break;
+				}
+			}
+			if(!owned){
+				cout << "User doesn't own this group./ Group doesn't exist.\n";
+				continue;
+			}
+			auto req = join_requests.find(params[1]);
+			if(req == join_requests.end()){
+				cout << "Group doesn't have pending requests./ Group doesn't exist.\n";
+				continue;
+			}
+			vector<string> reqs = req->second;
+			bool req_present = false;
+			for(string userid : reqs){
+				if(userid == params[2]){
+					req_present = true;
+					break;
+				}
+			}
+			if(!req_present){
+				cout << "UserID not present in pending requests.\n";
+				continue;
+			}
+			int ret = send_command_to_tracker(comm, address);
+			if(ret >= 0){
+				if(ret == 1){
+					cout << "Group doesn't exist.\n";
+				}
+			}
 		}else if(command_name == "list_groups"){
 			cout << "list groups\n";
+			if(strlen(userID) == 0){
+				cerr << "You must login first.\n";
+				continue;
+			}
+			vector<string> all_groups = find_all_groups(address);
+			cout << "GroupID\tOwnerID\n";
+			for(string g : all_groups){
+				cout << g << endl;
+			}
 		}else if(command_name == "list_files"){
 			cout << "list files\n";
 		}else if(command_name == "upload_file"){
@@ -437,6 +523,18 @@ void* start_client(void* args){
 			cout << "downloading..\n";
 		}else if(command_name == "logout"){
 			cout << "logout\n";
+			if(strlen(userID) == 0){
+				cerr << "You must login first.\n";
+				continue;
+			}
+			strcat(comm, " ");
+			strcat(comm, userID);
+			int ret = send_command_to_tracker(comm, address);
+			if(ret == 0){
+				cout << userID << " logged out.\n";
+			}
+			strcpy(userID,"\0");
+
 		}else if(command_name == "show_downloads"){
 			cout << "show downloads\n";
 		}else if(command_name == "stop_share"){

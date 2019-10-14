@@ -7,6 +7,7 @@ class user {
 	string pwd;
 	vector<string> groupIDs;	//may be null
 	struct sockaddr_in address; //Current ip and port of user
+	bool isLoggedIn;
 
 	void print(){
 		cout << endl << user_ID << " : " << pwd << endl;

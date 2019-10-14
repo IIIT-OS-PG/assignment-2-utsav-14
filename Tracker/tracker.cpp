@@ -80,6 +80,7 @@ int login(vector<string> params, int socket){ // 1:userID , 2: pwd, 3:peer_port
 				getpeername(socket, (struct sockaddr*)&peer_address, (socklen_t*)&addrlen);
 				temp_user.address = peer_address;
 				temp_user.address.sin_port = htons(client_port);
+				temp_user.isLoggedIn = true;
 				logged_in_users.push_back(temp_user);
 				f_in.close();
 				return 0;
@@ -156,6 +157,13 @@ int create_group(vector<string> params){
 	groups.push_back(new_grp);
 	f_in.close();
 	f_out.close();
+	vector<user> usrs = logged_in_users;
+	for(uint i = 0; i < usrs.size(); ++i){
+		if(usrs[i].user_ID == params[2]){	//if found the owner of group, then add the group to its group list
+			logged_in_users[i].groupIDs.push_back(params[1]);
+			break;
+		}
+	}
 	return 0;
 }
 
@@ -244,7 +252,75 @@ vector<string> find_owned_groups(string userID){
 	return g_IDs;
 }
 
+vector<group> find_all_groups(){
+	ifstream f_in("groups");
+	vector<group> grps;
+	if(!f_in){
+		cerr << "Error: Groups file couldn't be opened.\n";
+		return grps;
+	}
+	group temp_grp;
+	while(f_in >> temp_grp){
+		grps.push_back(temp_grp);
+	}
+	cout << "sending " << grps.size() << " groups\n";
+	f_in.close();
+	return grps;
+}
+
+void promote_member(string grpID, string usrID){
+	ifstream f_in("groups");
+	ofstream f_out("groups", ios::out);
+	if(!f_in || !f_out){
+		cerr << "Error: Groups file couldn't be opened.\n";
+	}
+	group temp_grp;
+	while(f_in >> temp_grp){
+		if(temp_grp.group_ID == grpID){
+			temp_grp.owner_user_ID = usrID;
+		}
+		if(!(f_out << temp_grp)){
+			cerr << "Error writing record in group file.\n";
+		}
+	}
+	cout << "User promoted.\n";
+	f_in.close();
+	f_out.close();
+}
+
+int delete_group_from_file(string groupID){
+	ifstream f_in("groups");
+	ofstream f_out("groups", ios::out);
+	if(!f_in || !f_out){
+		cerr << "Error: Groups file couldn't be opened.\n";
+		return 5;
+	}
+	group temp_grp;
+	while(f_in >> temp_grp){
+		if(temp_grp.group_ID != groupID){
+			if(!(f_out << temp_grp)){
+				cerr << "Error writing record in group file.\n";
+			}
+		}
+	}
+	cout << "Group deleted.\n";
+	f_in.close();
+	f_out.close();
+	return 1;
+}
+
 int leave_group(vector<string> params){
+	vector<user> usrs = logged_in_users;
+	for(uint i = 0; i < usrs.size(); ++i){
+		if(usrs[i].user_ID == params[2]){
+			vector<string> gIDs = usrs[i].groupIDs;
+			for(uint j = 0; j < gIDs.size(); ++j){
+				if(gIDs[j] == params[1]){
+					logged_in_users[i].groupIDs.erase(gIDs.begin() + j);
+				}
+			}
+		}
+	}
 	vector<group> grps = groups;
 	for(uint i = 0; i < grps.size(); ++i){
 		if(grps[i].group_ID == params[1]){	//groupID found
@@ -258,29 +334,15 @@ int leave_group(vector<string> params){
 				if(grps[i].members.size() > 1){
 					string new_owner = grps[i].members[1];
 					cout << new_owner << " promoted to group owner\n";
-					grps[i].owner_user_ID = new_owner;
+					promote_member(params[1] ,new_owner);
+					groups[i].owner_user_ID = new_owner;
 					groups[i].members.erase(groups[i].members.begin()); //Delete the previous owner from members list
 					cout << "Deleted owner.\n";
 					return 0;
 				}else{
 					groups.erase(groups.begin() + i);
 					//Delete group from file
-					ifstream f_in("groups");
-					ofstream f_out("groups", ios::out);
-					if(!f_in || !f_out){
-						cerr << "Error: Groups file couldn't be opened.\n";
-						return 5;
-					}
-					group temp_grp;
-					while(f_in >> temp_grp){
-						if(temp_grp.group_ID != params[1]){
-							if(!(f_out << temp_grp)){
-								cerr << "Error writing record in group file.\n";
-							}
-						}
-					}
-					cout << "Group deleted.\n";
-					return 1;
+					return delete_group_from_file(params[1]);
 				}
 			}
 			vector<string> mems = grps[i].members;
@@ -297,6 +359,38 @@ int leave_group(vector<string> params){
 	}
 	cout << "No such group exists.\n";
 	return 4;
+}
+
+int accept_request(vector<string> params){
+	vector<user> usrs = logged_in_users;
+	for(uint i = 0; i < usrs.size(); ++i){
+		if(usrs[i].user_ID == params[2]){
+			logged_in_users[i].groupIDs.push_back(params[1]);
+		}
+	}
+	vector<group> grps = groups;
+	for(uint i = 0; i < grps.size(); ++i){
+		if(grps[i].group_ID == params[1]){
+			groups[i].members.push_back(params[2]);
+			cout << "User accepted to group.\n";
+			return 0;
+		}
+	}
+	cout << "Group doesn't exist.\n";
+	return 1;
+}
+
+int logout(vector<string> params){
+	vector<user> usrs = logged_in_users;
+	for(uint i = 0; i < usrs.size(); ++i){
+		if(usrs[i].user_ID == params[1]){
+			logged_in_users[i].isLoggedIn = false;
+			cout << params[1] << " logged out.\n";
+			return 0;
+		}
+	}
+	cerr << params[1] << " isn't logged in.\n";
+	return 1;
 }
 
 int execute_command(vector<string> params, int socket){
@@ -316,11 +410,10 @@ int execute_command(vector<string> params, int socket){
 	}else if(command_name == "leave_group"){
 		cout << "leave group\n";
 		return leave_group(params);
-	}/*else if(command_name == "list_requests"){
-		cout << "list requests\n";
 	}else if(command_name == "accept_request"){
 		cout << "accept request\n";
-	}*/else if(command_name == "list_groups"){
+		return accept_request(params);
+	}else if(command_name == "list_groups"){
 		cout << "list groups\n";
 	}else if(command_name == "list_files"){
 		cout << "list files\n";
@@ -330,6 +423,7 @@ int execute_command(vector<string> params, int socket){
 		cout << "downloading..\n";
 	}else if(command_name == "logout"){
 		cout << "logout\n";
+		return logout(params);
 	}/*else if(command_name == "show_downloads"){
 		cout << "show downloads\n";
 	}else if(command_name == "stop_share"){
@@ -363,6 +457,20 @@ void* serve_request(void* new_socket){
 			vector<string> res = find_owned_groups(params[1]);
 			for(string g_ID : res){
 				int ret = write(socket, g_ID.c_str(), g_ID.size());
+				if(!ret){
+					cerr << "\nError in writing response.";
+				}
+			}
+		}else if(params[0] == "find_all_groups"){
+			vector<group> res = find_all_groups();
+			int size = res.size();
+			int ret = write(socket, &size, sizeof(size));
+			if(!ret){
+				cerr << "\nError in writing size.";
+			}
+			for(group g : res){
+				string ans = g.owner_user_ID + "\t" + g.group_ID;
+				int ret = write(socket, ans.c_str(), ans.size());
 				if(!ret){
 					cerr << "\nError in writing response.";
 				}
