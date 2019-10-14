@@ -244,6 +244,61 @@ vector<string> find_owned_groups(string userID){
 	return g_IDs;
 }
 
+int leave_group(vector<string> params){
+	vector<group> grps = groups;
+	for(uint i = 0; i < grps.size(); ++i){
+		if(grps[i].group_ID == params[1]){	//groupID found
+			if(grps[i].owner_user_ID == params[2]){		//owner is leaving
+				cout << "Deleting owner\n";
+				cout << "group members:\n";
+				for(string m : grps[i].members){
+					cout << m <<",";
+				}
+				cout << endl;
+				if(grps[i].members.size() > 1){
+					string new_owner = grps[i].members[1];
+					cout << new_owner << " promoted to group owner\n";
+					grps[i].owner_user_ID = new_owner;
+					groups[i].members.erase(groups[i].members.begin()); //Delete the previous owner from members list
+					cout << "Deleted owner.\n";
+					return 0;
+				}else{
+					groups.erase(groups.begin() + i);
+					//Delete group from file
+					ifstream f_in("groups");
+					ofstream f_out("groups", ios::out);
+					if(!f_in || !f_out){
+						cerr << "Error: Groups file couldn't be opened.\n";
+						return 5;
+					}
+					group temp_grp;
+					while(f_in >> temp_grp){
+						if(temp_grp.group_ID != params[1]){
+							if(!(f_out << temp_grp)){
+								cerr << "Error writing record in group file.\n";
+							}
+						}
+					}
+					cout << "Group deleted.\n";
+					return 1;
+				}
+			}
+			vector<string> mems = grps[i].members;
+			for(uint j = 0; j < mems.size(); ++j){
+				if(mems[j] == params[2]){
+					mems.erase(mems.begin() + j);
+					cout << "Member deleted.\n";
+					return 2;
+				}
+			}
+			cout << "User is not a part of this group.\n";
+			return 3;
+		}
+	}
+	cout << "No such group exists.\n";
+	return 4;
+}
+
 int execute_command(vector<string> params, int socket){
 	string command_name = params[0]/*, response = "generic response"*/;
 	if(command_name == "create_user"){
@@ -260,6 +315,7 @@ int execute_command(vector<string> params, int socket){
 		return join_group(params);
 	}else if(command_name == "leave_group"){
 		cout << "leave group\n";
+		return leave_group(params);
 	}/*else if(command_name == "list_requests"){
 		cout << "list requests\n";
 	}else if(command_name == "accept_request"){

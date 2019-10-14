@@ -57,3 +57,19 @@ std::string join_group_code_to_string(int code)
    }
    return "Unknown code";
 }
+
+std::string leave_group_code_to_string(int code)
+{
+   switch (code)
+   {
+      case 0:   return "Deleted owner.";
+      case 1:   return "Group deleted.";
+      case 2:   return "Member deleted.";
+      case 3:   return "Error: User is not a part of this group.";      
+      case 4:   return "Error: No such group exists.";  
+      case 5:   return "Error: Groups file couldn't be opened.";         
+      default:
+         break;
+   }
+   return "Unknown code";
+}

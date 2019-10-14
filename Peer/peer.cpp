@@ -376,6 +376,23 @@ void* start_client(void* args){
 			}
 		}else if(command_name == "leave_group"){
 			cout << "leave group\n";
+			if(params.size() != 2){
+				cerr << "Exactly 1 arguement required: (groupid)\n";
+				continue;
+			}
+			if(strlen(userID) == 0){
+				cerr << "You must login first.\n";
+				continue;
+			}
+			strcat(comm, " ");
+			strcat(comm, userID);
+			int ret = send_command_to_tracker(comm, address);
+			if(ret >= 0){
+				cout << leave_group_code_to_string(ret);
+				if(ret == 1){
+					join_requests.erase(params[1]); //Group deleted => remove all join requests for it
+				}
+			}
 		}else if(command_name == "list_requests"){
 			cout << "list requests\n";
 			if(params.size() != 2){
@@ -406,7 +423,7 @@ void* start_client(void* args){
 					cout << "Logged in user doesn't own this groupID.\n";
 				}
 			}else{
-				cout << "GroupID not found.\n";
+				cout << "GroupID not present/ GroupID doesn't have pending requests.\n";
 			}
 		}else if(command_name == "accept_request"){
 			cout << "accept request\n";
