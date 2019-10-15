@@ -17,6 +17,7 @@ typedef unsigned long long ull;
 #define BUFF_SIZE (512*1024)
 #define QUEUE_LENGTH 10
 #define HASH_LENGTH 20
+#define MAX_COMMAND_SIZE 50000
 //#define PACKET_SIZE (2*1024)
 const char* downloads_base_directory =  "./Downloads/";
 const char* uploads_base_directory =  "./Uploads/";
@@ -288,6 +289,50 @@ vector<string> find_all_groups(struct sockaddr_in address){
 	return response;
 }
 
+ull get_file_size(string file_path){
+	struct stat st;
+	ull file_size = 0LLU;
+	if(stat(file_path.c_str(), &st) != 0)
+	{
+		perror("Error calculating the file size");
+		return file_size;
+	}
+	if(S_ISDIR(st.st_mode)){
+		cerr << file_path << " is a directory.\n";
+		return file_size;
+	}
+	file_size = st.st_size;
+	return file_size;
+}
+
+string get_file_sha(string file_path){
+	ull file_size = get_file_size(file_path);
+	string sha1;
+	FILE *f_in = fopen(file_path.c_str(), "r");
+	if(!f_in){
+		cerr << "Couldn't open the file.\n";
+		return sha1;
+	}
+	cout << "File opened successfully.\n";
+	ull chunks = (ull)ceil((double)file_size/(BUFF_SIZE));
+	cout << "File size: " << file_size << " Chunks: " << chunks << endl;
+	for(ull i = 0; i < chunks; ++i){
+		char chunk_buffer[BUFF_SIZE] = "\0";
+		int bytes_read = fread(chunk_buffer, sizeof(char), BUFF_SIZE, f_in);
+		if(!bytes_read){
+			cerr << "Error while reading file.\n";
+			return sha1;
+		}
+		unsigned char chunk_hash[HASH_LENGTH]="\0";
+		SHA1((const unsigned char*)chunk_buffer, bytes_read, chunk_hash);
+		//cout << "hash generated for chunk " << i << ": " << chunk_hash << endl;
+		string hash_str((char*)chunk_hash);
+		sha1 += hash_str;
+	}
+	fclose(f_in);
+	return sha1;
+}
+
 void* start_client(void* args){
 	
 	thread_args* arg = (thread_args*)args;
@@ -317,7 +362,7 @@ void* start_client(void* args){
 		cout << "\n\t\t\t\tClient Program\n";
 		cout << "Enter command > ";
 		cin.get();
-		char comm[200] = "\0";
+		char comm[200] = "\0"; //For small commands ie no SHA1
 		scanf("%[^\n]", comm);
 		if(strlen(comm) == 0){
 			continue;
@@ -519,6 +564,35 @@ void* start_client(void* args){
 			cout << "list files\n";
 		}else if(command_name == "upload_file"){
 			cout << "upload file\n";
+			if(params.size() != 3){
+				cerr << "Exactly 2 arguements required: (filepath, groupid)\n";
+				continue;
+			}
+			if(strlen(userID) == 0){
+				cerr << "You must login first.\n";
+				continue;
+			}
+			char big_command[MAX_COMMAND_SIZE] = "\0";
+			strcpy(big_command, comm);
+			strcat(big_command, " ");
+			strcat(big_command, userID);
+			string file_sha = get_file_sha(params[1]);
+			if(file_sha.size() == 0){
+				continue;
+			}
+			//cout << "File sha: " << file_sha_and_size << endl;
+			strcat(big_command, " ");
+			strcat(big_command, file_sha.c_str());
+			ull file_size = get_file_size(params[1]);
+			char size[40] = "\0";
+			sprintf(size, "%llu", file_size);
+			//cout << "Size string: " << size << endl;
+			strcat(big_command, " ");
+			strcat(big_command, size);
+			int ret = send_command_to_tracker(big_command, address);
+			if(ret >= 0){
+				cout << upload_file_code_to_string(ret);
+			}
 		}else if(command_name == "download_file"){
 			cout << "downloading..\n";
 		}else if(command_name == "logout"){

@@ -73,3 +73,17 @@ std::string leave_group_code_to_string(int code)
    }
    return "Unknown code";
 }
+
+std::string upload_file_code_to_string(int code)
+{
+   switch (code)
+   {
+      case 0:   return "File shared on the group.";
+      case 1:   return "File is already shared on this group.";
+      case 2:   return "Error: User is not a member of this group.";
+      case 3:   return "Error: GroupID not found.";      
+      default:
+         break;
+   }
+   return "Unknown code";
+}

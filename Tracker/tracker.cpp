@@ -26,12 +26,12 @@ typedef struct {
     struct in_addr ip_addr;		// IP address.
 }socket_addr;
 
-typedef struct {
-	string SHA1;
-	vector<socket_addr> suppliers;
-	ull size;
-	bool is_shared;
-}file;
+// typedef struct {
+// 	string SHA1;
+// 	vector<socket_addr> suppliers;
+// 	ull size;
+// 	bool is_shared;
+// }file;
 
 
 int setup_socket(){
@@ -393,6 +393,49 @@ int logout(vector<string> params){
 	return 1;
 }
 
+int upload_file(vector<string> params){
+	// cout << "Params recieved:\n";
+	// for(uint i = 0; i < params.size(); ++i){
+	// 	cout << params[i] << endl;
+	// }
+	
+	//Check if user belongs to given group id
+	file new_file;
+	new_file.file_name = params[1];
+	new_file.is_shared = true;
+	new_file.sha_1 = params[4];
+	new_file.size = params[5];
+	new_file.ownerID = params[3];
+	new_file.suppliers_userIDs.push_back(params[3]);
+	vector<group> grps = groups;
+	for(uint i = 0; i < grps.size(); ++i){
+		if(grps[i].group_ID == params[2]){	//GroupID found
+			vector<string> mems = grps[i].members;
+			for(string user_id : mems){
+				if(user_id == params[3]){	//User is a part of given group
+					for(file f : grps[i].files_shared){
+						if(f.sha_1 == params[4]){
+							cout << "File is already shared on this group.\n";
+							return 1;
+						}
+					}
+					groups[i].files_shared.push_back(new_file);
+					cout << "File shared on the group.\n";
+					cout << "Here it is:\n";
+					for(file f : groups[i].files_shared){
+						f.print();	
+					}
+					return 0;
+				}
+			}
+			cerr << "User is not a member of this group.\n";
+			return 2;
+		}
+	}
+	cerr << "GroupID not found.\n";
+	return 3;
+}
+
 int execute_command(vector<string> params, int socket){
 	string command_name = params[0]/*, response = "generic response"*/;
 	if(command_name == "create_user"){
@@ -419,6 +462,7 @@ int execute_command(vector<string> params, int socket){
 		cout << "list files\n";
 	}else if(command_name == "upload_file"){
 		cout << "upload file\n";
+		return upload_file(params);
 	}else if(command_name == "download_file"){
 		cout << "downloading..\n";
 	}else if(command_name == "logout"){

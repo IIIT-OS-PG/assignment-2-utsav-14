@@ -1,4 +1,5 @@
 #include "common_headers.h"
+#include "file.h"
 using namespace std;
 
 class group {
@@ -6,7 +7,7 @@ class group {
 	string group_ID;
 	string owner_user_ID;
 	vector<string> members;
-	//vector<file> files_shared;
+	vector<file> files_shared;
 
 	void print(){
 		cout << endl << group_ID << " : " << owner_user_ID << endl;
@@ -14,10 +15,10 @@ class group {
         for(string memberID : members){
             cout << memberID << "\n";
         }
-        // cout << "Files:\n";
-        // for(file f : members){
-        //     cout << f.SHA1 << "\n";
-        // }
+        cout << "Files:\nName\t\tSize\tisShared\n";
+        for(file f : files_shared){
+            cout << f.file_name << "\t" << f.size << "\t" << f.is_shared << endl;
+        }
 	}
  
 	friend ostream & operator << (ostream &out, const group & obj)
