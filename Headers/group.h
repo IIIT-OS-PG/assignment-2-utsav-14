@@ -15,9 +15,9 @@ class group {
         for(string memberID : members){
             cout << memberID << "\n";
         }
-        cout << "Files:\nName\t\tSize\tisShared\n";
+        cout << "Files:\nName\t\tSize\n";
         for(file f : files_shared){
-            cout << f.file_name << "\t" << f.size << "\t" << f.is_shared << endl;
+            cout << f.file_name << "\t" << f.size /*<< "\t" << f.is_shared*/ << endl;
         }
 	}
  

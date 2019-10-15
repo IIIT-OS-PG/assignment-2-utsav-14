@@ -5,13 +5,13 @@ class file {
 	public:
 	string sha_1;
     string file_name;
-	bool is_shared;
+	//bool is_shared;
 	vector<string> suppliers_userIDs;
     string size;
     string ownerID;
 
 	void print(){
-		cout << endl << file_name << " : " << is_shared << " : " << size << " : " << ownerID << endl;
+		cout << endl << file_name << " : " << /*is_shared << " : " << */size << " : " << ownerID << endl;
         if(suppliers_userIDs.size() > 0){
             cout << "Suppliers:\n";
             for(string supplierID : suppliers_userIDs){

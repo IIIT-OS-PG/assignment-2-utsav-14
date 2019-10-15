@@ -5,10 +5,8 @@
 #include <pthread.h>
 #include <cmath>
 #include <sstream>
-#include <fstream>
 #include "../Headers/common_headers.h"
 #include "../Headers/user.h"
-#include "../Headers/group.h"
 
 typedef unsigned long long ull;
 #define BUFF_SIZE (512*1024)
@@ -268,6 +266,17 @@ vector<group> find_all_groups(){
 	return grps;
 }
 
+vector<file> get_shared_files(string g_ID){
+	vector<file> fs;
+	vector<group> grps = groups;
+	for(uint i = 0; i < grps.size(); ++i){
+		if(grps[i].group_ID == g_ID){
+			return grps[i].files_shared;
+		}
+	}
+	return fs;
+}
+
 void promote_member(string grpID, string usrID){
 	ifstream f_in("groups");
 	ofstream f_out("groups", ios::out);
@@ -394,6 +403,9 @@ int logout(vector<string> params){
 }
 
 int upload_file(vector<string> params){
+	if(groups.size() == 0){
+		init_groups();
+	}
 	// cout << "Params recieved:\n";
 	// for(uint i = 0; i < params.size(); ++i){
 	// 	cout << params[i] << endl;
@@ -401,12 +413,19 @@ int upload_file(vector<string> params){
 	
 	//Check if user belongs to given group id
 	file new_file;
-	new_file.file_name = params[1];
-	new_file.is_shared = true;
+	new_file.file_name = params[6];
+	//new_file.is_shared = true;
 	new_file.sha_1 = params[4];
 	new_file.size = params[5];
 	new_file.ownerID = params[3];
 	new_file.suppliers_userIDs.push_back(params[3]);
+	ull file_size;
+	sscanf(params[5].c_str(), "%llu", &file_size);
+	ull chunks = (ull)ceil((double)file_size/(BUFF_SIZE));
+	vector<uint> chunks_list;
+	for(ull i = 0; i < chunks; ++i){
+		chunks_list.push_back(i);
+	}
 	vector<group> grps = groups;
 	for(uint i = 0; i < grps.size(); ++i){
 		if(grps[i].group_ID == params[2]){	//GroupID found
@@ -420,11 +439,18 @@ int upload_file(vector<string> params){
 						}
 					}
 					groups[i].files_shared.push_back(new_file);
-					cout << "File shared on the group.\n";
-					cout << "Here it is:\n";
-					for(file f : groups[i].files_shared){
-						f.print();	
+					vector<user> usrs = logged_in_users;
+					for(uint j = 0; j < usrs.size(); ++j){
+						if(usrs[i].user_ID == params[3]){
+							logged_in_users[i].files_available.insert(make_pair(params[4], chunks_list));
+							break;
+						}
 					}
+					cout << "File shared on the group.\n";
+					// cout << "Here it is:\n";
+					// for(file f : groups[i].files_shared){
+					// 	f.print();	
+					// }
 					return 0;
 				}
 			}
@@ -436,8 +462,69 @@ int upload_file(vector<string> params){
 	return 3;
 }
 
+int send_download_req(string file, user owner){
+	struct sockaddr_in address = owner.address;  
+	int tracker_fd = setup_socket();
+	if (tracker_fd  == 0) 
+	{ 
+		perror("Socket creation failed"); 
+	}
+	if (connect(tracker_fd, (struct sockaddr *)&address, sizeof(address)) < 0)
+	{ 
+		perror("Connection Failed."); 
+	}
+	char command[200]= "\0";
+	strcpy(command, "download ");
+	strcat(command, file.c_str());
+	write(tracker_fd , command , strlen(command));
+	close(tracker_fd);
+	return 0;
+}
+
+
+int request_file(string file_name, string userId){
+	user suppl;
+	vector<user> usrs = logged_in_users;
+	for(uint i = 0; i < usrs.size(); ++i){
+		if(usrs[i].user_ID == userId){
+			suppl = usrs[i];
+			break;
+		}
+	}
+	send_download_req(file_name, suppl);
+	return 0;
+}
+
+int download_file(vector<string> params){
+	if(groups.size()==0){
+		init_groups();
+	}
+	string supplier_id;
+	vector<group> grps = groups;
+	for(uint i = 0; i < grps.size(); ++i){
+		if(params[1] == grps[i].group_ID){
+			vector<string> mems = grps[i].members;
+			for(string user_id : mems){
+				if(params[4] == user_id){
+					vector<file> fs = grps[i].files_shared;
+					for(file f : fs){
+						if(f.file_name == params[2]){
+							supplier_id = f.suppliers_userIDs.front();
+							return request_file(params[2], supplier_id);
+						}
+					}
+				}
+			}
+			cerr << "User not part of this group.\n";
+			return 1;
+		}
+	}
+	cerr << "GroupID not found.\n";
+	return 2;
+}
+
 int execute_command(vector<string> params, int socket){
-	string command_name = params[0]/*, response = "generic response"*/;
+	string command_name = params[0];
 	if(command_name == "create_user"){
 		cout << "creating user:\n";
 		return create_user(params);
@@ -458,21 +545,20 @@ int execute_command(vector<string> params, int socket){
 		return accept_request(params);
 	}else if(command_name == "list_groups"){
 		cout << "list groups\n";
-	}else if(command_name == "list_files"){
-		cout << "list files\n";
 	}else if(command_name == "upload_file"){
 		cout << "upload file\n";
 		return upload_file(params);
 	}else if(command_name == "download_file"){
-		cout << "downloading..\n";
+		cout << "download file\n";
+		return download_file(params);
 	}else if(command_name == "logout"){
 		cout << "logout\n";
 		return logout(params);
 	}/*else if(command_name == "show_downloads"){
 		cout << "show downloads\n";
-	}else if(command_name == "stop_share"){
+	}*/else if(command_name == "stop_share"){
 		cout << "stop share\n";
-	}*/else{
+	}else{
 		cout << "wrong command\n";
 	}
 	return 0;
@@ -513,7 +599,21 @@ void* serve_request(void* new_socket){
 				cerr << "\nError in writing size.";
 			}
 			for(group g : res){
-				string ans = g.owner_user_ID + "\t" + g.group_ID;
+				string ans = g.group_ID + "\t" + g.owner_user_ID;
+				int ret = write(socket, ans.c_str(), ans.size());
+				if(!ret){
+					cerr << "\nError in writing response.";
+				}
+			}
+		}else if(params[0] == "get_shared_files"){
+			vector<file> res = get_shared_files(params[1]);
+			int size = res.size();
+			int ret = write(socket, &size, sizeof(size));
+			if(!ret){
+				cerr << "\nError in writing size.";
+			}
+			for(file f : res){
+				string ans = f.file_name + "\t" + f.size;
 				int ret = write(socket, ans.c_str(), ans.size());
 				if(!ret){
 					cerr << "\nError in writing response.";

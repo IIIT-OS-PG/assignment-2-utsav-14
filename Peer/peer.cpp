@@ -22,6 +22,7 @@ typedef unsigned long long ull;
 const char* downloads_base_directory =  "./Downloads/";
 const char* uploads_base_directory =  "./Uploads/";
 unordered_map<string, vector<string>> join_requests;
+unordered_map<string, string> file_paths;
 vector<string> owned_groups;
 using namespace std;
 
@@ -112,8 +113,11 @@ void* serve_request(void* new_socket){
 			cout << "Join request added.\n";
 		}else{	
 			char* file_path = new char[200];
-			set_filepath(file_path, buffer);
-			cout << "File requested: " << file_path << endl;
+			string file = params[1];
+			string filepath = file_paths.find(file)->second;
+			//set_filepath(file_path, buffer);
+			cout << "File requested: " << filepath << endl;
+			strcpy(file_path, file.c_str());
 			send_file(file_path, buffer, socket);
 		}
 	}
@@ -333,6 +337,56 @@ string get_file_sha(string file_path){
 	return sha1;
 }
 
+
+vector<string> split_by_delim(string str, char delim){
+	stringstream tokenizer(str);
+	vector<string> words;
+	string param;
+	while(getline(tokenizer, param, delim)){
+		words.push_back(param);
+	}
+	return words;
+}
+
+string get_file_name(string file_path){
+	cout << "Path:" << file_path << endl;
+	vector<string> words = split_by_delim(file_path, '/');
+	cout << "returning: " << words.back() << endl;
+	return words.back();
+}
+vector<string> get_shared_files(struct sockaddr_in address, string gID){
+	char command[100] = "\0";
+	strcpy(command, "get_shared_files");
+	strcat(command, " ");
+	strcat(command, gID.c_str());
+	int client_fd = setup_socket();
+	if (client_fd  == 0) 
+	{ 
+		perror("Socket creation failed"); 
+	}
+	if (connect(client_fd, (struct sockaddr *)&address, sizeof(address)) < 0)
+	{ 
+		perror("Connection Failed."); 
+	}
+	write(client_fd , command , strlen(command));
+	vector<string> response;
+	char res[100] = "\0";
+	uint* size = new uint;
+	int ret = read(client_fd, size, sizeof(size));
+	if(!ret){
+		cout << "Error reading the number of groups.\n";
+		return response;
+	}
+	//cout << "size: " << *size << endl;
+	while(read(client_fd, &res, sizeof(res))){
+		string grp(res);
+		response.push_back(grp);
+	}
+	close(client_fd);
+	return response;
+}
+
+
 void* start_client(void* args){
 	
 	thread_args* arg = (thread_args*)args;
@@ -362,18 +416,18 @@ void* start_client(void* args){
 		cout << "\n\t\t\t\tClient Program\n";
 		cout << "Enter command > ";
 		cin.get();
-		char comm[200] = "\0"; //For small commands ie no SHA1
+		char comm[500] = "\0"; //For small commands ie no SHA1
 		scanf("%[^\n]", comm);
 		if(strlen(comm) == 0){
 			continue;
 		}
 		string command(comm);
-		stringstream tokenizer(command);
-		vector<string> params;
-		string param;
-		while(getline(tokenizer, param, ' ')){
-			params.push_back(param);
-		}
+		//stringstream tokenizer(command);
+		vector<string> params = split_by_delim(command, ' ');
+		// string param;
+		// while(getline(tokenizer, param, ' ')){
+		// 	params.push_back(param);
+		// }
 		string command_name = params[0];
 		if(command_name == "create_user"){
 			if(params.size() != 3){
@@ -556,12 +610,33 @@ void* start_client(void* args){
 				continue;
 			}
 			vector<string> all_groups = find_all_groups(address);
-			cout << "GroupID\tOwnerID\n";
-			for(string g : all_groups){
-				cout << g << endl;
+			if(all_groups.size() > 0){
+				cout << "GroupID\tOwnerID\n";
+				for(string g : all_groups){
+					cout << g << endl;
+				}
+			}else{
+				cout << "No groups found.\n";
 			}
 		}else if(command_name == "list_files"){
 			cout << "list files\n";
+			if(params.size() != 2){
+				cerr << "Exactly 1 arguement required: (groupid)\n";
+				continue;
+			}
+			if(strlen(userID) == 0){
+				cerr << "You must login first.\n";
+				continue;
+			}
+			vector<string> files_shared = get_shared_files(address, params[1]);
+			if(files_shared.size() > 0){
+				cout << "File Name\t\tSize\n";
+				for(string f : files_shared){
+					cout << f << endl;
+				}
+			}else{
+				cout << "No files found in group.\n";
+			}
 		}else if(command_name == "upload_file"){
 			cout << "upload file\n";
 			if(params.size() != 3){
@@ -586,15 +661,32 @@ void* start_client(void* args){
 			ull file_size = get_file_size(params[1]);
 			char size[40] = "\0";
 			sprintf(size, "%llu", file_size);
-			//cout << "Size string: " << size << endl;
 			strcat(big_command, " ");
 			strcat(big_command, size);
+			strcat(big_command, " ");
+			string name = get_file_name(params[1]);
+			strcat(big_command, name.c_str());
+			file_paths.insert(make_pair(name, params[1]));
 			int ret = send_command_to_tracker(big_command, address);
 			if(ret >= 0){
 				cout << upload_file_code_to_string(ret);
 			}
 		}else if(command_name == "download_file"){
-			cout << "downloading..\n";
+			cout << "download file\n";
+			if(params.size() != 4){
+				cerr << "Exactly 3 arguements required: (groupid, file_name, destination_path)\n";
+				continue;
+			}
+			if(strlen(userID) == 0){
+				cerr << "You must login first.\n";
+				continue;
+			}
+			strcat(comm, " ");
+			strcat(comm, userID);
+			int ret = send_command_to_tracker(comm, address);
+			if(ret >= 0){
+				
+			}
 		}else if(command_name == "logout"){
 			cout << "logout\n";
 			if(strlen(userID) == 0){

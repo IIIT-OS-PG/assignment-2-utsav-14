@@ -1,4 +1,7 @@
 #include "common_headers.h"
+#include "group.h"
+#include <unordered_map>
+
 using namespace std;
 
 class user {
@@ -8,6 +11,7 @@ class user {
 	vector<string> groupIDs;	//may be null
 	struct sockaddr_in address; //Current ip and port of user
 	bool isLoggedIn;
+	unordered_map<string, vector<uint>> files_available;
 
 	void print(){
 		cout << endl << user_ID << " : " << pwd << endl;
